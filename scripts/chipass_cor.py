@@ -4,10 +4,12 @@ import healpy as hp, numpy as np, matplotlib.pyplot as plt
 from astropy.io import fits
 import bin_llcl
 
+freq=1.42
 
 cmb_file = '../data/COM_CMB_IQU_sevem_256_deg.npz'
 dust_file = '../data/COM_CompMap_dust-commander_0256_R2.00.fits'
 sync_file = '../data/COM_CompMap_Synchrotron-commander_0256_R2.00.fits'
+free_file = '../data/COM_CompMap_freefree-commander_0256_R2.00.fits'
 radio_file = '../data/lambda_chipass_healpix_r10.fits'
 
 
@@ -18,6 +20,11 @@ cmb_mask = f_cmb['mask']
 hdu_dust = fits.open(dust_file)
 dust_map = hdu_dust[1].data.field('I_ML') * 1e-6 -2.73 ##Convert K_RJ to K_CMB
 hdu_dust.close()
+
+hdu_free = fits.open(free_file)
+free_EM = hdu_free[1].data.field('EM_ML')
+free_T = hdu_free[1].data.field('TEMP_ML')
+hdu_free.close()
 
 
 hdu_sync = fits.open(sync_file)
@@ -31,8 +38,18 @@ hdu_radio.close()
 
 sync_map = hp.reorder(sync_map,n2r=1)
 dust_map = hp.reorder(dust_map,n2r=1)
+free_EM = hp.reorder(free_EM,n2r=1)
+free_T = hp.reorder(free_T,n2r=1)
 radio_map = hp.reorder(radio_map,n2r=1)
 counts = hp.reorder(counts,n2r=1)
+
+##construct free-free intensity map
+
+gff = np.log( np.exp( 5.690 - np.sqrt(3.)/np.pi* np.log( freq * (free_T*1e-4)**(-1.5)) ) + np.e)
+tau = 0.05468 * (free_T)**(-1.5)*freq**(-2) * free_EM*gff
+free_map =  1e6*free_T*(1-np.exp(-tau))
+
+
 
 radio_map[counts == 0] = 0
 
