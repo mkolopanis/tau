@@ -53,8 +53,8 @@ free_map =  1e6*free_T*(1-np.exp(-tau))
 
 radio_map[counts == 0] = 0
 
-radio_map = hp.ud_grade(radio_map,256)
 radio_map = hp.smoothing(radio_map,fwhm=np.pi/180.)
+radio_map = hp.ud_grade(radio_map,256)
 
 counts = hp.ud_grade(counts,256)
 
