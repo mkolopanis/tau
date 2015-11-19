@@ -13,6 +13,7 @@ radio_file = '../data/lambda_chipass_healpix_r10.fits'
 
 f_cmb = np.load(cmb_file)
 cmb_map =f_cmb['cmb']
+cmb_mask = f_cmb['mask']
 
 hdu_dust = fits.open(dust_file)
 dust_map = hdu_dust[1].data.field('I_ML') * 1e-6 ##Convert K_RJ to K_CMB
@@ -25,9 +26,17 @@ hdu_sync.close()
 
 hdu_radio = fits.open(radio_file)
 radio_map = hdu_radio[1].data.field('TEMPERAUTRE') * 1e-3 #conver to K
+counts = hdu_radio[1].data.field('SENSITIVITY')
 hdu_radio.close()
 
 sync_map = hp.reoder(sync_map,n2r=1)
 dust_map = hp.reoder(dust_map,n2r=1)
 radio_map = hp.reorder(radio_map,n2r=1)
+counts = hp.reorder(counts,n2r=1)
+
+radio_map = hp.smoothing(radio_map,fwhm=np.pi/180.)
+
+mask = np.logical_and(mask,counts)
+
+mask_bool = ~mask.astype(bool)
 
