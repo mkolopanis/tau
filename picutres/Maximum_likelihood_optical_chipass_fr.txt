@@ -1,0 +1,5 @@
+Maximum Likelihood: 100.00000%  for scale factor 64.85 
+Posterior: Mean,	sigma,	(1siglo,1sighi),	(2sighlo,2sighi)
+Posterior: 64.851,	5.040 ,	(59.791,69.871)	(54.751,74.911)
+ Posterior SNR:	 0.198
+
