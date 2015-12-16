@@ -93,7 +93,7 @@ counts = hp.reorder(counts,n2r=1)
 
 radio_map[counts == 0] = 0
 
-radio_map = hp.smoothing(radio_map,fwhm=np.pi/180.)
+radio_map = hp.smoothing(radio_map,fwhm=np.sqrt(60**2-14.4**2)*np.pi/(180.*60))
 radio_map = hp.ud_grade(radio_map,256)
 
 counts = hp.ud_grade(counts,256)
@@ -119,12 +119,22 @@ gamma_sync = np.sum(radio_map*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sy
 
 delta_dust = np.sum(radio_map*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(radio_map*sync_map) - np.sum(radio_map*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
+print 'Synchrotron sacle factor:', gamma_sync
+print 'Dust scale factor:', delta_dust
+
 
 radio_fr = np.copy(radio_map - gamma_sync*sync_map - delta_dust * dust_map)
 
 radio_fr = hp.ma(radio_fr)
 radio_fr.mask=mask_bool
 
+hp.mollview(sync_map, norm='hist')
+plt.savefig('sync_map.png',format='png')
+plt.close()
+
+hp.mollview(dust_map, norm='hist')
+plt.savefig('dust_map.png',format='png')
+plt.close()
 
 hp.mollview(radio_fr, norm='hist', unit='$K_{CMB}$')
 plt.savefig('chipass_fr.png', format='png')
@@ -136,6 +146,7 @@ plt.close()
 
 cross = hp.anafast(cmb_map,radio_fr)
 cmb_cls = hp.anafast(cmb_map)
+wls = hp.anafast((~mask_bool).astype(float))
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
@@ -145,8 +156,8 @@ lmax = len(cross)
 l = np.arange(lmax)
 ll = l*(l+1)/(2*np.pi)
 
-beam = hp.gauss_beam(np.pi/180.,lmax-1)
-pix = hp.pixwin(256)[:lmax]
+beam = hp.gauss_beam(np.pi/180.,lmax)
+pix = hp.pixwin(256)[:lmax-1]
 
 fact = ll/fsky/(beam*pix)**2
 
