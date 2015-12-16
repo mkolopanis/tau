@@ -2,6 +2,7 @@ import matplotlib
 #matplotlib.use('Agg')
 import healpy as hp, numpy as np, matplotlib.pyplot as plt
 from astropy.io import fits
+import scalar_mixing_matrix as MLL
 import bin_llcl
 
 def likelihood(cross,dcross,theory,name,title):
@@ -148,13 +149,26 @@ cross = hp.anafast(cmb_map,radio_fr)
 cmb_cls = hp.anafast(cmb_map)
 wls = hp.anafast((~mask_bool).astype(float))
 
+lmax = len(cross)
+l = np.arange(lmax)
+ll = l*(l+1)/(2*np.pi)
+
+wls = hp.anafast(radio_fr.mask.astype(float))
+
+Mll = MLL.Mll(wls,l)
+
+U, S, V = np.linalg.svd(Mll.conj())
+
+kll = np.einsum('ij,j,jk', V.T, 1./S, U.T)
+
+cll = n.dot(kll, cross)
+cmb_cll = n.dot(kll,cmb_cls)
+
+
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
 dl_eff = 2*np.pi/L
 
-lmax = len(cross)
-l = np.arange(lmax)
-ll = l*(l+1)/(2*np.pi)
 
 beam = hp.gauss_beam(np.pi/180.,lmax)
 pix = hp.pixwin(256)[:lmax-1]
