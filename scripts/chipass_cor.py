@@ -39,12 +39,12 @@ def likelihood(cross,dcross,theory,name,title):
 	except:
 		print('Scale exceeded for possterior. \n Plotting anyway')
 	ax1.plot(a_scales,chi_array,'k',linewidth=2)
-	#ax1.set_title('Faraday Rotatior Posterior')
+	ax1.set_title('Posterior')
 	#ax1.set_xlabel('Likelihood scalar')
 	#ax1.set_ylabel('Likelihood of Correlation')
 	#	
-	#fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.png',format='png')
-	#fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.eps',format='eps')
+	fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.png',format='png')
+	fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.eps',format='eps')
 freq=1.42
 
 cmb_file = '../data/COM_CMB_IQU_sevem_256_deg.npz'
@@ -92,9 +92,9 @@ counts = hp.reorder(counts,n2r=1)
 
 
 
-radio_map[counts == 0] = 0
+radio_map[counts == 0] = hp.UNSEEN
 
-radio_map = hp.smoothing(radio_map,fwhm=np.pi/180.)
+radio_map = hp.smoothing(radio_map,fwhm=(60.0**2-14.4*82)*np.pi/(180./60.))
 radio_map = hp.ud_grade(radio_map,256)
 
 counts = hp.ud_grade(counts,256)
@@ -135,23 +135,35 @@ hp.mollview(radio_map, norm='hist', unit='$K_{CMB}$')
 plt.savefig('chipass_raw.png', format='png')
 plt.close()
 
-cross = hp.anafast(cmb_map,radio_fr)
+cross_cls = hp.anafast(cmb_map,radio_fr)
 cmb_cls = hp.anafast(cmb_map)
 
 lmax = len(cross)
 l = np.arange(lmax)
 ll = l*(l+1)/(2*np.pi)
 
-wls = hp.anafast(radio_fr.mask.astype(float))
+wls = hp.anafast((~radio_fr.mask).astype(float))
+#plt.plot(l,ll*wls)
+#@plt.show()
 
-Mll = MLL.Mll(wls,l)
+#Mll = MLL.Mll(wls,l)
+
+#Mll = np.array(Mll)
+
+#np.savez('scalar_mixing_matrix.npz',mll=Mll)
+
+Mll = np.load('scalar_mixing_matrix.npz')['mll']
+#
+#Mll = Mll.reshape(lmax,lmax)
 
 U, S, V = np.linalg.svd(Mll.conj())
 
 kll = np.einsum('ij,j,jk', V.T, 1./S, U.T)
 
-cll = n.dot(kll, cross)
-cmb_cll = n.dot(kll,cmb_cls)
+print('sum of kll: {0}'.format(np.sum(kll,axis=-1)))
+
+cll = np.dot(kll, cross_cls)
+cmb_cll = np.dot(kll,cmb_cls)
 
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
@@ -168,6 +180,9 @@ fact = ll/fsky/(beam*pix)**2
 #plt.plot(l,ll*cmb_cls,'r-')
 #plt.show(block = False)
 
+cross = cll.copy()
+cmb_cls = cmb_cll.copy()
+
 bcross= bin_llcl.bin_llcl(ll*cross,25)
 bcmb  = bin_llcl.bin_llcl(ll*cmb_cls,25)
 
@@ -178,11 +193,11 @@ ax.errorbar(bcross['l_out'], bcross['llcl']*1e12, bcross['std_llcl']*1e12, fmt =
 ax.set_xlabel('$\ell$')
 ax.set_ylabel('$\\frac{\ell(\ell+1)}{2\pi} C_{\ell} [\mu K]^{2}$')
 
-ax.set_ylim([0,6e4])
+#ax.set_ylim([0,6e4])
 
 fig.savefig('chipass_correlation_lin.png', fmt='png')
 
-ax.set_ylim([1,1e5])
+#ax.set_ylim([1,1e5])
 ax.set_yscale('log')
 fig.savefig('chipass_correlation_log.png', fmt='png')
 
