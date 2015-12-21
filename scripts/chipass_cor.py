@@ -94,7 +94,7 @@ counts = hp.reorder(counts,n2r=1)
 
 radio_map[counts == 0] = hp.UNSEEN
 
-radio_map = hp.smoothing(radio_map,fwhm=(60.0**2-14.4*82)*np.pi/(180./60.))
+radio_map = hp.smoothing(radio_map,fwhm=np.sqrt(60.0**2-14.4*82)*np.pi/(180.*60.))
 radio_map = hp.ud_grade(radio_map,256)
 
 counts = hp.ud_grade(counts,256)
@@ -138,9 +138,11 @@ plt.close()
 cross_cls = hp.anafast(cmb_map,radio_fr)
 cmb_cls = hp.anafast(cmb_map)
 
-lmax = len(cross)
+lmax = len(cross_cls)
 l = np.arange(lmax)
 ll = l*(l+1)/(2*np.pi)
+beam = hp.gauss_beam(np.pi/180.,lmax-1)
+pix = hp.pixwin(256)[:lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))
 #plt.plot(l,ll*wls)
@@ -155,12 +157,10 @@ wls = hp.anafast((~radio_fr.mask).astype(float))
 Mll = np.load('scalar_mixing_matrix.npz')['mll']
 #
 #Mll = Mll.reshape(lmax,lmax)
-
-U, S, V = np.linalg.svd(Mll.conj())
+U, S, V = np.linalg.svd((Mll*beam**2*pix**2).conj())
 
 kll = np.einsum('ij,j,jk', V.T, 1./S, U.T)
 
-print('sum of kll: {0}'.format(np.sum(kll,axis=-1)))
 
 cll = np.dot(kll, cross_cls)
 cmb_cll = np.dot(kll,cmb_cls)
@@ -171,8 +171,6 @@ L = np.sqrt(4*np.pi*fsky)
 dl_eff = 2*np.pi/L
 
 
-beam = hp.gauss_beam(np.pi/180.,lmax-1)
-pix = hp.pixwin(256)[:lmax]
 
 fact = ll/fsky/(beam*pix)**2
 
