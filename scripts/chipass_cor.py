@@ -46,17 +46,20 @@ def likelihood(cross,dcross,theory,name,title):
 	fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.png',format='png')
 	fig.savefig('FR_simulation_likelihood_'+name+'_'+title+'.eps',format='eps')
 freq=1.42
-
-cmb_file = '../data/COM_CMB_IQU_sevem_256_deg.npz'
+bins = 10
+#cmb_file = '../data/COM_CMB_IQU_sevem_256_deg.npz'
+cmb_file ='../data/cmb_256.npy'
 dust_file = '../data/COM_CompMap_dust-commander_0256_R2.00.fits'
 sync_file = '../data/COM_CompMap_Synchrotron-commander_0256_R2.00.fits'
 free_file = '../data/COM_CompMap_freefree-commander_0256_R2.00.fits'
 radio_file = '../data/lambda_chipass_healpix_r10.fits'
+wmap_file = '../data/wmap_mask_256.npy'
 
-
-f_cmb = np.load(cmb_file)
-cmb_map =f_cmb['cmb']
-cmb_mask = f_cmb['mask']
+#f_cmb = np.load(cmb_file)
+#cmb_map =f_cmb['cmb']
+#cmb_mask = f_cmb['mask']
+cmb_map = np.load(cmb_file)
+cmb_mask = np.load(wmap_file)
 
 hdu_dust = fits.open(dust_file)
 dust_map = hdu_dust[1].data.field('I_ML') * 1e-6 ##Convert K_RJ to K_CMB
@@ -73,7 +76,7 @@ sync_map = hdu_sync[1].data.field('I_ML') * 1e-6  ##Convert K_RJ to K_CMB
 hdu_sync.close()
 
 hdu_radio = fits.open(radio_file)
-radio_map = hdu_radio[1].data.field('TEMPERATURE') * 1e-3 -2.725 #convert to  KCMB
+radio_map = hdu_radio[1].data.field('TEMPERATURE') * 1e-3  -2.725#convert to  KCMB
 counts = hdu_radio[1].data.field('SENSITIVITY')
 hdu_radio.close()
 
@@ -83,6 +86,8 @@ free_EM = hp.reorder(free_EM,n2r=1)
 free_T = hp.reorder(free_T,n2r=1)
 radio_map = hp.reorder(radio_map,n2r=1)
 counts = hp.reorder(counts,n2r=1)
+
+cmb_mask = hp.ud_grade(cmb_mask,256)
 
 ##construct free-free intensity map
 #
@@ -94,7 +99,7 @@ counts = hp.reorder(counts,n2r=1)
 
 radio_map[counts == 0] = hp.UNSEEN
 
-radio_map = hp.smoothing(radio_map,fwhm=np.sqrt(60.0**2-14.4*82)*np.pi/(180.*60.))
+#radio_map = hp.smoothing(radio_map,fwhm=np.sqrt(60.0**2-14.4*82)*np.pi/(180.*60.))
 radio_map = hp.ud_grade(radio_map,256)
 
 counts = hp.ud_grade(counts,256)
@@ -114,6 +119,13 @@ cmb_map.mask = mask_bool
 dust_map.mask = mask_bool
 sync_map.mask = mask_bool
 
+radio_map -= radio_map.mean()
+cmb_map -= cmb_map.mean()
+dust_map -= dust_map.mean()
+sync_map -= sync_map.mean()
+
+
+
 ##Remove foregrounds
 
 gamma_sync = np.sum(radio_map*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sync_map)/np.sum(sync_map**2) *((np.sum(sync_map**2)*np.sum(radio_map*dust_map) - np.sum(radio_map*sync_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
@@ -121,11 +133,11 @@ gamma_sync = np.sum(radio_map*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sy
 delta_dust = np.sum(radio_map*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(radio_map*sync_map) - np.sum(radio_map*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
 
-radio_fr = np.copy(radio_map - gamma_sync*sync_map - delta_dust * dust_map)
+radio_fr = np.copy(radio_map.data - gamma_sync*sync_map.data - delta_dust * dust_map.data)
 
 radio_fr = hp.ma(radio_fr)
 radio_fr.mask=mask_bool
-
+radio_fr -=radio_fr.mean()
 
 hp.mollview(radio_fr, norm='hist', unit='$K_{CMB}$')
 plt.savefig('chipass_fr.png', format='png')
@@ -135,18 +147,54 @@ hp.mollview(radio_map, norm='hist', unit='$K_{CMB}$')
 plt.savefig('chipass_raw.png', format='png')
 plt.close()
 
-cross_cls = hp.anafast(cmb_map,radio_fr)
+cross_cls = hp.anafast(cmb_map,radio_fr-radio_fr.mean())
 cmb_cls = hp.anafast(cmb_map)
 
 lmax = len(cross_cls)
 l = np.arange(lmax)
 ll = l*(l+1)/(2*np.pi)
-beam = hp.gauss_beam(np.pi/180.,lmax-1)
+beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),lmax-1)
+beam_5 = hp.gauss_beam(14.4*np.pi/(180.*60.),lmax-1)
 pix = hp.pixwin(256)[:lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))
+
+
+nbins = long(lmax/bins)
+_lmax = nbins*bins -1
+m=np.arange(lmax+1)
+w=2*l+1
+
+Pbl = np.tile( l*(l+1)/(2*np.pi*25),(nbins,1))
+
+mult =np.zeros_like(Pbl)
+for b in xrange(nbins):
+    mult[b,bins*b:bins*b+bins-1] = 1.
+
+
+Pbl *= mult
+
+Qlb = np.tile(2*np.pi/(l*(l+1)).clip(1,np.Inf),(nbins,1)).T
+Qlb[0] = 0.
+
+Qlb *= mult.T
 #plt.plot(l,ll*wls)
 #@plt.show()
+
+l_out = bin_llcl.bin_llcl(ll,bins)['l_out']
+bcross_cls= bin_llcl.bin_llcl(ll*cross_cls,bins)
+bcmb_cls = bin_llcl.bin_llcl(ll*cmb_cls,bins)
+bwls = bin_llcl.bin_llcl(ll*wls,bins)
+
+
+_lmax = bins*len(bcross_cls)
+#l = np.arange(lmax)
+#ll= l*(l+1)/(2*np.pi)
+#_ll = 2*np.pi/(l*(l+1)).clip(1,np.Inf)
+
+#ubcross = _ll * np.repeat(bcross_cls,bins)
+#ubcmb_cls = _ll * np.repeat(bcmb_cls,bins)
+#ubwls = _ll * np.repeat(bwls,bins)
 
 #Mll = MLL.Mll(wls,l)
 
@@ -157,13 +205,26 @@ wls = hp.anafast((~radio_fr.mask).astype(float))
 Mll = np.load('scalar_mixing_matrix.npz')['mll']
 #
 #Mll = Mll.reshape(lmax,lmax)
-U, S, V = np.linalg.svd((Mll*beam**2*pix**2).conj())
 
-kll = np.einsum('ij,j,jk', V.T, 1./S, U.T)
+kbb_cross = np.dot(Pbl, np.dot(Mll *beam_14*beam_5*pix**2,Qlb))
+kbb_cmb = np.dot(Pbl, np.dot(Mll *beam_5**2*pix**2,Qlb))
 
 
-cll = np.dot(kll, cross_cls)
-cmb_cll = np.dot(kll,cmb_cls)
+U, S, V = np.linalg.svd(kbb_cross)
+
+_kbb_cross = np.einsum('ij,j,jk', V.T, 1./S, U.T)[:lmax,:lmax]
+U, S, V = np.linalg.svd(kbb_cmb)
+
+_kbb_cmb = np.einsum('ij,j,jk', V.T, 1./S, U.T)[:lmax,:lmax]
+
+dll= {}
+cmb_dll= {}
+for key in bcross_cls.keys():
+    dll[key] = np.dot(_kbb_cross, bcross_cls[key])
+    cmb_dll[key] =np.dot(_kbb_cmb,bcmb_cls[key])
+
+#cll = np.dot(kll, ubcross)
+#cmb_cll = np.dot(kll,ubcmb_cls)
 
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
@@ -172,22 +233,21 @@ dl_eff = 2*np.pi/L
 
 
 
-fact = ll/fsky/(beam*pix)**2
 
 #plt.plot(l,ll*cross,'k.')
 #plt.plot(l,ll*cmb_cls,'r-')
 #plt.show(block = False)
 
-cross = cll.copy()
-cmb_cls = cmb_cll.copy()
-
-bcross= bin_llcl.bin_llcl(ll*cross,25)
-bcmb  = bin_llcl.bin_llcl(ll*cmb_cls,25)
+#cross = cll.copy()
+#cmb_cls = cmb_cll.copy()
+#
+#bcross= bin_llcl.bin_llcl(ll*cross,bins)
+#bcmb  = bin_llcl.bin_llcl(ll*cmb_cls,bins)
 
 fig, ax = plt.subplots(1)
 
-ax.plot(l,ll*cmb_cls*1e12, 'r-')
-ax.errorbar(bcross['l_out'], bcross['llcl']*1e12, bcross['std_llcl']*1e12, fmt ='k.')
+ax.plot(l_out,cmb_dll['llcl']*1e12, 'r-')
+ax.errorbar(l_out, dll['llcl']*1e12, dll['std_llcl']*1e12, fmt ='k.')
 ax.set_xlabel('$\ell$')
 ax.set_ylabel('$\\frac{\ell(\ell+1)}{2\pi} C_{\ell} [\mu K]^{2}$')
 
@@ -199,6 +259,6 @@ fig.savefig('chipass_correlation_lin.png', fmt='png')
 ax.set_yscale('log')
 fig.savefig('chipass_correlation_log.png', fmt='png')
 
-likelihood(bcross['llcl'],bcross['std_llcl'],bcmb['llcl'],'chipass','fr')
+likelihood(dll['llcl'],dll['std_llcl'],cmb_dll['llcl'],'chipass','fr')
 
 
