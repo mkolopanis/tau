@@ -150,15 +150,14 @@ hp.mollview(radio_map, norm='hist', unit='$K_{CMB}$')
 plt.savefig('chipass_raw.png', format='png')
 plt.close()
 
-cross_cls = hp.anafast(cmb_map,radio_fr-radio_fr.mean())
+cross_cls = hp.anafast(cmb_map,radio_fr)
 cmb_cls = hp.anafast(cmb_map)
-wls = hp.anafast((~mask_bool).astype(float))
 
 lmax = len(cross_cls)
 l = np.arange(lmax)
 ll = l*(l+1)/(2*np.pi)
 beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),lmax-1)
-beam_5 = hp.gauss_beam(14.4*np.pi/(180.*60.),lmax-1)
+beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),lmax-1)
 pix = hp.pixwin(256)[:lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))
@@ -203,13 +202,13 @@ _lmax = bins*len(bcross_cls)
 #ubcmb_cls = _ll * np.repeat(bcmb_cls,bins)
 #ubwls = _ll * np.repeat(bwls,bins)
 
-#Mll = MLL.Mll(wls,l)
+Mll = MLL.Mll(wls,l)
 
 #Mll = np.array(Mll)
 
-#np.savez('scalar_mixing_matrix.npz',mll=Mll)
+np.savez('scalar_mixing_matrix.npz',mll=Mll)
 
-Mll = np.load('scalar_mixing_matrix.npz')['mll']
+#Mll = np.load('scalar_mixing_matrix.npz')['mll']
 #
 #Mll = Mll.reshape(lmax,lmax)
 
