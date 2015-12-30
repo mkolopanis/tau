@@ -9,7 +9,7 @@ def likelihood(cross,dcross,theory,name,title):
         
         dcross=np.copy(dcross)
 
-	a_scales=np.linspace(-1000,1000,100000)
+	a_scales=np.linspace(-10,10,10000)
 	chi_array=[]
 	for a in a_scales:
 		chi_array.append(np.exp(-.5*np.sum( (cross - a*theory)**2/(dcross)**2)))
@@ -62,7 +62,7 @@ cmb_map = np.load(cmb_file)
 cmb_mask = np.load(wmap_file)
 
 hdu_dust = fits.open(dust_file)
-dust_map = hdu_dust[1].data.field('I_ML') * 1e-6 ##Convert K_RJ to K_CMB
+dust_map = hdu_dust[1].data.field('I_ML') * 1e-6 -2.725 ##Convert K_RJ to K_CMB
 hdu_dust.close()
 
 hdu_free = fits.open(free_file)
@@ -72,7 +72,7 @@ hdu_free.close()
 
 
 hdu_sync = fits.open(sync_file)
-sync_map = hdu_sync[1].data.field('I_ML') * 1e-6  ##Convert K_RJ to K_CMB
+sync_map = hdu_sync[1].data.field('I_ML') * 1e-6 -2.725  ##Convert K_RJ to K_CMB
 hdu_sync.close()
 
 hdu_radio = fits.open(radio_file)
@@ -169,19 +169,22 @@ _lmax = nbins*bins -1 +2
 m=np.arange(lmax+1)
 w=2*l+1
 
-Pbl = np.tile( l*(l+1)/(2*np.pi*25),(nbins,1))
+Pbl = np.tile( l*(l+1)/(2*np.pi*bins),(nbins,1))
 
+
+Qlb = np.tile(2.*np.pi/(l*(l+1)).clip(1,np.Inf),(nbins,1))
+#Qlb[0] = 0.
+Qlb = Qlb.T
+Qlb[:1] = 0
+
+q_mult = np.zeros_like(Qlb)
 mult =np.zeros_like(Pbl)
 for b in xrange(nbins):
     mult[b,bins*b +2:bins*b+bins -1 +2] = 1. #add two to account for binning operator a la Hizon 2002
-
+    q_mult[bins*b +2:bins*b+bins -1 +2,b] = 1. #add two to account for binning operator a la Hizon 2002
 
 Pbl *= mult
-
-Qlb = np.tile(2*np.pi/(l*(l+1)).clip(1,np.Inf),(nbins,1)).T
-Qlb[0] = 0.
-
-Qlb *= mult.T
+Qlb *= q_mult
 #plt.plot(l,ll*wls)
 #@plt.show()
 
@@ -215,17 +218,18 @@ kbb_cmb = np.dot(Pbl, np.dot(Mll *beam_5**2*pix**2,Qlb))
 
 
 U, S, V = np.linalg.svd(kbb_cross)
-
 _kbb_cross = np.einsum('ij,j,jk', V.T, 1./S, U.T)[:lmax,:lmax]
-U, S, V = np.linalg.svd(kbb_cmb)
 
-_kbb_cmb = np.einsum('ij,j,jk', V.T, 1./S, U.T)[:lmax,:lmax]
+
+U1, S1, V1 = np.linalg.svd(kbb_cmb)
+_kbb_cmb = np.einsum('ij,j,jk', V1.T, 1./S1, U1.T)[:lmax,:lmax]
 
 dll= {}
 cmb_dll= {}
-for key in bcross_cls.keys():
-    dll[key] = np.dot(_kbb_cross, bcross_cls[key])
-    cmb_dll[key] =np.dot(_kbb_cmb,bcmb_cls[key])
+dll['llcl'] = np.dot(_kbb_cross, bcross_cls['llcl'])
+dll['std_llcl'] = np.sqrt(np.dot(_kbb_cross, bcross_cls['std_llcl']**2))
+cmb_dll['llcl'] =np.dot(_kbb_cmb,bcmb_cls['llcl'])
+cmb_dll['std_llcl'] = np.sqrt(np.dot(_kbb_cmb,bcmb_cls['std_llcl']**2))
 
 #cll = np.dot(kll, ubcross)
 #cmb_cll = np.dot(kll,ubcmb_cls)
