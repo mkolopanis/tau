@@ -164,8 +164,8 @@ pix = hp.pixwin(256)[:lmax]
 wls = hp.anafast((~radio_fr.mask).astype(float))
 
 
-nbins = long(lmax/bins)
-_lmax = nbins*bins -1
+nbins = long((lmax-2)/bins)
+_lmax = nbins*bins -1 +2
 m=np.arange(lmax+1)
 w=2*l+1
 
@@ -173,7 +173,7 @@ Pbl = np.tile( l*(l+1)/(2*np.pi*25),(nbins,1))
 
 mult =np.zeros_like(Pbl)
 for b in xrange(nbins):
-    mult[b,bins*b:bins*b+bins-1] = 1.
+    mult[b,bins*b +2:bins*b+bins -1 +2] = 1. #add two to account for binning operator a la Hizon 2002
 
 
 Pbl *= mult
