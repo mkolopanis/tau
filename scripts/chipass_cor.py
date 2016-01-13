@@ -1,5 +1,5 @@
 import matplotlib
-#matplotlib.use('Agg')
+matplotlib.use('Agg')
 import healpy as hp, numpy as np, matplotlib.pyplot as plt
 from astropy.io import fits
 import scalar_mixing_matrix as MLL
