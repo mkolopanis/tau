@@ -207,11 +207,11 @@ bwls = bin_llcl.bin_llcl(ll*wls,bins)
 
 
 
-Mll = MLL.Mll(wls,l)
+#Mll = MLL.Mll(wls,l)
 #Mll = np.array(Mll)
-np.savez('mll_wma.npz',mll=Mll)
+#np.savez('mll_mwa.npz',mll=Mll)
 
-#Mll = np.load('mll_mwa.npz')['mll']
+Mll = np.load('mll_mwa.npz')['mll']
 Mll = Mll[:beam_lmax,:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
