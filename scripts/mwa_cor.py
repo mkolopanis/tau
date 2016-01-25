@@ -167,13 +167,13 @@ pix = hp.pixwin(256)[:beam_lmax]
 
 theory_cls= hp.read_cl(theory_cl_file)
 theory_cls=theory_cls[0][:beam_lmax]
-theory_cls[:2]=1e-10
+#theory_cls[:2]=1e-10
 
 cross_cls = cross_cls[:beam_lmax]
 cmb_cls = cmb_cls[:beam_lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))[:beam_lmax]
-fskyw2 = np.sum([(2*m+1)*wls[mi] for mi,m in enumerate(l)])/(4*np.pi)
+fskyw2 = np.sum([(2*m+1)*wls[mi] if m != 0 else 0 for mi,m in enumerate(l)])/(4*np.pi)
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
@@ -187,7 +187,7 @@ w=2*l+1
 
 Pbl = np.tile( l*(l+1)/(2*np.pi*bins),(nbins,1))
 
-Qlb = np.tile(2.*np.pi/(l*(l+1)).clip(1,np.Inf),(nbins,1))
+Qlb = np.tile(2.*np.pi/(l*(l+1)),(nbins,1))
 Qlb = Qlb.T
 Qlb[:2] = 0
 
@@ -197,8 +197,17 @@ for b in xrange(nbins):
     mult[b,bins*b +2:bins*b+bins -1 +2] = 1. #add two to account for binning operator a la Hizon 2002
     q_mult[bins*b +2:bins*b+bins -1 +2,b] = 1. #add two to account for binning operator a la Hizon 2002
 
+
+
 Pbl *= mult
-Qlb *= q_mult/.9 ## divide by .9 so np.dot(Pbl,Qlb) = identity
+Qlb *= q_mult
+
+
+norm = np.dot(Pbl,Qlb)[0,0]
+
+Pbl /= np.sqrt(norm)
+
+Qlb /= np.sqrt(norm)
 
 l_out = bin_llcl.bin_llcl(ll,bins)['l_out']
 bcross_cls= bin_llcl.bin_llcl(ll*cross_cls,bins)
@@ -216,11 +225,11 @@ Mll = Mll[:beam_lmax,:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
 #compute TOD transfer function.. Maybe
-N_cmb = 100
+N_cmb = 5
 #
 cl_mc=[]
 noise_mc=[]
-noise_const = 40e-6
+noise_const = 400e-6
 print 'Creaing transform function with {0} CMB realizations'.format(N_cmb)
 for n in xrange(N_cmb):
     temp_cmb = hp.synfast(theory_cls,nside=256,fwhm=0,verbose=False,pixwin=True)
@@ -236,7 +245,7 @@ for n in xrange(N_cmb):
     temp_noise.mask = mask_bool
 
     cl_mc.append(hp.anafast(temp_cmb)[:beam_lmax])
-    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[:beam_lmax]/beam_14**2/pix**2)
+    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[:beam_lmax])
 
 cl_avg=np.mean(cl_mc,axis=0)
 
@@ -268,13 +277,21 @@ S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
 
 F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) for n in xrange(1,beam_lmax+1)])
 F0_cmb[:25] =0
-Fl1_cmb = F0_cmb + (S_cl_avg - np.dot( Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
-Fl_cmb = Fl1_cmb + (S_cl_avg - np.dot( Mll*Fl1_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+Fl1_cmb = F0_cmb + (cl_avg - np.dot( Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+Fl1_cmb[:2] =0
+
+Fl_cmb = Fl1_cmb + (cl_avg - np.dot( Mll*Fl1_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+
+Fl_cmb[:2] =0
 
 #two itterations to make stable soultion
 
-Fl1_cross = F0_cmb +  (S_cl_avg - np.dot(Mll*F0_cmb*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
-Fl_cross = Fl1_cross +  (S_cl_avg - np.dot(Mll*Fl1_cross*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
+#Fl1_cross = F0_cmb +  (cl_avg - np.dot(Mll*F0_cmb*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
+#Fl_cross[:2] = 0
+#
+#Fl_cross = Fl1_cross +  (cl_avg - np.dot(Mll*Fl1_cross*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
+#
+#Fl_cross[:2] = 0
 
 
 
@@ -294,10 +311,11 @@ _kbb_cmb = np.einsum('ij,j,jk', V1.T, 1./S1, U1.T)
 dll = {}
 cmb_dll = {}
 noise_dll = {}
+
 dll['llcl'] = np.einsum('ij,j', _kbb_cross, bcross_cls['llcl'])
-dll['std_llcl'] = np.einsum('ij,j',_kbb_cross, bcross_cls['std_llcl'])
+
 cmb_dll['llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['llcl'])
-cmb_dll['std_llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['std_llcl'])
+
 noise_dll['llcl'] = np.einsum('ij,kj', _kbb_cross,bnoise['llcl'])
 
 Cov = cov( dll['llcl'] - noise_dll['llcl'].T)
