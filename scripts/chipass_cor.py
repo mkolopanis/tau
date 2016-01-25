@@ -217,7 +217,7 @@ bwls = bin_llcl.bin_llcl(ll*wls,bins)
 #Mll = np.array(Mll)
 #np.savez('scalar_mixing_matrix.npz',mll=Mll)
 
-Mll = np.load('scalar_mixing_matrix.npz')['mll']
+Mll = np.load('mll_chipass.npz')['mll']
 Mll = Mll[:beam_lmax,:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
