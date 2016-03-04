@@ -5,7 +5,7 @@ from astropy.io import fits
 import scalar_mixing_matrix as MLL
 import bin_llcl
 import ipdb
-
+from scipy.interpolate import interp1d
 def cov(x):
     #x -= x.mean()
     fact = x.shape[0]-1
@@ -132,19 +132,26 @@ cmb_map -= cmb_map.mean()
 dust_map -= dust_map.mean()
 sync_map -= sync_map.mean()
 
+##High pass filter!
+
+new_radio = radio_map  - hp.smoothing(radio_map,fwhm=np.sqrt(120**2-14.4**2)*np.pi/(180.*60.),verbose = False)
+
+dust_map -= hp.smoothing(dust_map, fwhm=np.sqrt(120**2 - 60**2)*np.pi/(180.*60),verbose = False)
+
+sync_map -= hp.smoothing(sync_map, fwhm=np.sqrt(120**2 - 60**2)*np.pi/(180.*60.), verbose = False)
 
 
 ##Remove foregrounds
 
-gamma_sync = np.sum(radio_map*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sync_map)/np.sum(sync_map**2) *((np.sum(sync_map**2)*np.sum(radio_map*dust_map) - np.sum(radio_map*sync_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
+gamma_sync = np.sum(new_radio*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sync_map)/np.sum(sync_map**2) *((np.sum(sync_map**2)*np.sum(new_radio*dust_map) - np.sum(new_radio*sync_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
-delta_dust = np.sum(radio_map*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(radio_map*sync_map) - np.sum(radio_map*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
+delta_dust = np.sum(new_radio*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(new_radio*sync_map) - np.sum(new_radio*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
 print 'Synchrotron sacle factor:', gamma_sync
 print 'Dust scale factor:', delta_dust
 
 
-radio_fr = np.copy(radio_map.data - gamma_sync*sync_map.data - delta_dust * dust_map.data)
+radio_fr = np.copy(new_radio.data - gamma_sync*sync_map.data - delta_dust * dust_map.data)
 
 radio_fr = hp.ma(radio_fr)
 radio_fr.mask=mask_bool
@@ -165,21 +172,21 @@ cmb_cls = hp.anafast(cmb_map)
 
 lmax = len(cross_cls)
 beam_lmax = lmax
-l = np.arange(beam_lmax)
+l = np.arange(2,beam_lmax)
 ll = l*(l+1)/(2*np.pi)
-beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),beam_lmax-1)
-beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)
-pix = hp.pixwin(256)[:beam_lmax]
+beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),beam_lmax-1)[2:]
+beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)[2:]
+pix = hp.pixwin(256)[2:beam_lmax]
 
 theory_cls= hp.read_cl(theory_cl_file)
-theory_cls=theory_cls[0][:beam_lmax]
-theory_cls[:2]=1e-10
+theory_cls=theory_cls[0][2:beam_lmax]
+#theory_cls[:2]=1e-10
 
-cross_cls = cross_cls[:beam_lmax]
-cmb_cls = cmb_cls[:beam_lmax]
+cross_cls = cross_cls[2:beam_lmax]
+cmb_cls = cmb_cls[2:beam_lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))[:beam_lmax]
-fskyw2 = np.sum([(2*m+1)*wls[mi] for mi,m in enumerate(l)])/(4*np.pi)
+fskyw2 = np.sum([(2*m+1)*wls[mi] for mi,m in enumerate(xrange(len(wls)))])/(4*np.pi)
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
@@ -187,8 +194,8 @@ dl_eff = 2*np.pi/L
 
 
 
-nbins = long((beam_lmax-2)/bins)
-_lmax = nbins*bins -1 +2
+nbins = long((beam_lmax)/bins)
+_lmax = nbins*bins -1
 w=2*l+1
 
 Pbl = np.tile( l*(l+1)/(2*np.pi*bins),(nbins,1))
@@ -200,16 +207,16 @@ Qlb[:2] = 0
 q_mult = np.zeros_like(Qlb)
 mult =np.zeros_like(Pbl)
 for b in xrange(nbins):
-    mult[b,bins*b +2:bins*b+bins -1 +2] = 1. #add two to account for binning operator a la Hizon 2002
-    q_mult[bins*b +2:bins*b+bins -1 +2,b] = 1. #add two to account for binning operator a la Hizon 2002
+    mult[b,bins*b :bins*b+bins -1 ] = 1. #add two to account for binning operator a la Hizon 2002
+    q_mult[bins*b:bins*b+bins -1 ,b] = 1. #add two to account for binning operator a la Hizon 2002
 
 Pbl *= mult
 Qlb *= q_mult/.9 ## divide by .9 so np.dot(Pbl,Qlb) = identity
 
 l_out = bin_llcl.bin_llcl(ll,bins)['l_out']
-bcross_cls= bin_llcl.bin_llcl(ll*cross_cls,bins)
-bcmb_cls = bin_llcl.bin_llcl(ll*cmb_cls,bins)
-bwls = bin_llcl.bin_llcl(ll*wls,bins)
+#bcross_cls= bin_llcl.bin_llcl(ll*cross_cls,bins)
+#bcmb_cls = bin_llcl.bin_llcl(ll*cmb_cls,bins)
+#bwls = bin_llcl.bin_llcl(ll*wls[2:],bins)
 
 
 
@@ -217,7 +224,7 @@ bwls = bin_llcl.bin_llcl(ll*wls,bins)
 #Mll = np.array(Mll)
 #np.savez('scalar_mixing_matrix.npz',mll=Mll)
 
-Mll = np.load('scalar_mixing_matrix.npz')['mll']
+Mll = np.load('mll_chipass.npz')['mll']
 Mll = Mll[:beam_lmax,:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
@@ -225,62 +232,38 @@ Mll = Mll[:beam_lmax,:beam_lmax]
 N_cmb = 100
 #
 cl_mc=[]
-noise_mc=[]
-noise_const = 40000e-6
-print 'Creaing transform function with {0} CMB realizations'.format(N_cmb)
-for n in xrange(N_cmb):
-    temp_cmb = hp.synfast(theory_cls,nside=256,fwhm=0,verbose=False,pixwin=True)
-    temp_noise = np.copy(temp_cmb) + noise_const*np.random.normal(size=len(temp_cmb))
-
-    temp_cmb = hp.smoothing(temp_cmb,fwhm=5.*np.pi/(180.*60.),verbose=False)
-    temp_noise = hp.smoothing(temp_noise, fwhm=14.4*np.pi/(180.*60.),verbose=False)
-
-    temp_cmb = hp.ma(temp_cmb)
-    temp_cmb.mask = mask_bool
-
-    temp_noise = hp.ma(temp_noise)
-    temp_noise.mask = mask_bool
-
-    cl_mc.append(hp.anafast(temp_cmb)[:beam_lmax])
-    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[:beam_lmax]/beam_14**2/pix**2)
-
-cl_avg=np.mean(cl_mc,axis=0)
-
-noise_mc = np.array(noise_mc)
-
-bnoise=bin_llcl.bin_llcl(ll*noise_mc,bins)
-binned_t = bin_llcl.bin_llcl(ll*theory_cls,bins)
-#F0= cross_cls/(fskyw2*beam_5*beam_14*pix**2*theory_cls)
-#F0_cmb = cmb_cls/(fskyw2*beam_5**2*pix**2*theory_cls)
-#F0_cmb = cl_avg/(beam_5**2*pix**2*theory_cls*fskyw2)
-
-#F0[:2]=0
-#F0_cmb[:2]=0
+print 'Creaing transform function'
+#for n in xrange(N_cmb):
+#    temp_cmb = hp.synfast(theory_cls,nside=256,fwhm=0,verbose=False,pixwin=True)
+#
+#    temp_cmb = hp.smoothing(temp_cmb,fwhm=5.*np.pi/(180.*60.),verbose=False)
+#
+#    temp_cmb = hp.ma(temp_cmb)
+#    temp_cmb.mask = mask_bool
+#
+#
+#    cl_mc.append(hp.anafast(temp_cmb)[2:beam_lmax])
+#
+#cl_avg=np.mean(cl_mc,axis=0)
 
 
-#Fl = F0 + (np.convolve(cross_cls, np.ones(50)/50.,mode='same') - np.dot(Mll*F0*beam_5*beam_14*pix**2,theory_cls))/(beam_5*beam_14*fskyw2*theory_cls*pix**2)
+#bnoise=bin_llcl.bin_llcl(ll*noise_mc,bins)
+#binned_t = bin_llcl.bin_llcl(ll*theory_cls,bins)
+binned_t={}
+binned_t['llcl'] = np.einsum('ij,j', Pbl, theory_cls)
+
 #S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
 
-#Fl_cmb = F0_cmb + (S_cl_avg - np.einsum('ij,j', Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2)
-#Fl_cmb = F0_cmb + (S_cl_avg - np.einsum('ij,j', Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) if n >= 25 else 0 for n in xrange(3,beam_lmax+1)])
+#F0_cmb = cl_avg/(fskyw2*beam_5**2*pix**2*theory_cls)
 
-#Fl[:2]=0
-#Fl_cmb[:2]=0
-#Fl_cmb = np.ones_like(pix)
-
-
-S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
-
-
-F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) for n in xrange(1,beam_lmax+1)])
-F0_cmb[:25] =0
-Fl1_cmb = F0_cmb + (S_cl_avg - np.dot( Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
-Fl_cmb = Fl1_cmb + (S_cl_avg - np.dot( Mll*Fl1_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+#Fl1_cmb = F0_cmb + (cl_avg - np.dot( Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
+#Fl_cmb = Fl1_cmb + (cl_avg - np.dot( Mll*Fl1_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
 
 #two itterations to make stable soultion
 
-Fl1_cross = F0_cmb +  (S_cl_avg - np.dot(Mll*F0_cmb*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
-Fl_cross = Fl1_cross +  (S_cl_avg - np.dot(Mll*Fl1_cross*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
+#Fl1_cross = F0_cmb +  (cl_avg - np.dot(Mll*F0_cmb*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
+#Fl_cross = Fl1_cross + (cl_avg - np.dot(Mll*Fl1_cross*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
 
 
 
@@ -300,11 +283,35 @@ _kbb_cmb = np.einsum('ij,j,jk', V1.T, 1./S1, U1.T)
 dll = {}
 cmb_dll = {}
 noise_dll = {}
-dll['llcl'] = np.einsum('ij,j', _kbb_cross, bcross_cls['llcl'])
-dll['std_llcl'] = np.einsum('ij,j',_kbb_cross, bcross_cls['std_llcl'])
-cmb_dll['llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['llcl'])
-cmb_dll['std_llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['std_llcl'])
-noise_dll['llcl'] = np.einsum('ij,kj', _kbb_cross,bnoise['llcl'])
+#dll['llcl'] = np.einsum('ij,j', _kbb_cross, bcross_cls['llcl'])
+dll['llcl'] = np.einsum('ij,jk,k', _kbb_cross, Pbl,cross_cls)
+#dll['std_llcl'] = np.einsum('ij,j',_kbb_cross, bcross_cls['std_llcl'])
+#cmb_dll['llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['llcl'])
+cmb_dll['llcl'] = np.einsum('ij,jk,k',_kbb_cmb, Pbl, cmb_cls)
+#cmb_dll['std_llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['std_llcl'])
+#noise_dll['llcl'] = np.einsum('ij,kj', _kbb_cross,bnoise['llcl'])
+
+##interpolate to find new base cls
+
+cl_interp= interp1d(l_out,dll['llcl'],bounds_error=0,kind='linear')
+
+new_cls = cl_interp(xrange(lmax))
+new_cls = np.ma.masked_invalid(new_cls)
+new_cls.fill_value=0.0
+
+#now need to find error bars
+noise_mc=[]
+noise_const = 400e-6
+print 'Creating Error bars with {0} cmb realization'.format(N_cmb)
+for n in xrange(N_cmb):
+    temp_cmb = hp.synfast(new_cls.filled(),nside=256,fwhm=0,verbose=False,pixwin=True)
+    temp_noise = np.copy(temp_cmb) + noise_const*np.random.normal(size=len(temp_cmb))
+    temp_noise = hp.smoothing(temp_noise, fwhm=14.4*np.pi/(180.*60.),verbose=False)
+    temp_noise = hp.ma(temp_noise)
+    temp_noise.mask = mask_bool
+    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[2:beam_lmax])
+
+noise_dll['llcl'] = np.einsum('ij,jk,lk', _kbb_cross,Pbl, noise_mc)
 
 Cov = cov( dll['llcl'] - noise_dll['llcl'].T)
 
@@ -326,6 +333,8 @@ fig.savefig('chipass_correlation_lin.png', fmt='png')
 ax.set_yscale('log')
 fig.savefig('chipass_correlation_log.png', fmt='png')
 
-likelihood(dll['llcl'][good_l],delta[good_l],cmb_dll['llcl'][good_l],'chipass','fr')
+fit_l = np.logical_and(l_out>25, l_out < 500)
+
+likelihood(dll['llcl'][fit_l],delta[fit_l],cmb_dll['llcl'][fit_l],'chipass','fr')
 
 
