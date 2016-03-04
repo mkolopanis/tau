@@ -126,23 +126,52 @@ cmb_map -= cmb_map.mean()
 dust_map -= dust_map.mean()
 sync_map -= sync_map.mean()
 
+new_radio = radio_map  - hp.smoothing(radio_map,fwhm=np.sqrt((3*60.)**2-14.4**2)*np.pi/(180.*60.),verbose = False)
+
+dust_map -= hp.smoothing(dust_map, fwhm=np.sqrt((3*60.)**2 - 60.**2)*np.pi/(180.*60),verbose = False)
+
+sync_map -= hp.smoothing(sync_map, fwhm=np.sqrt((3*60.)**2 - 60.**2)*np.pi/(180.*60.), verbose = False)
 
 
 ##Remove foregrounds
 
-gamma_sync = np.sum(radio_map*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sync_map)/np.sum(sync_map**2) *((np.sum(sync_map**2)*np.sum(radio_map*dust_map) - np.sum(radio_map*sync_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
+gamma_sync = np.sum(new_radio*sync_map)/np.sum(sync_map**2) - np.sum(dust_map*sync_map)/np.sum(sync_map**2) *((np.sum(sync_map**2)*np.sum(new_radio*dust_map) - np.sum(new_radio*sync_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
-delta_dust = np.sum(radio_map*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(radio_map*sync_map) - np.sum(radio_map*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
+delta_dust = np.sum(new_radio*dust_map)/np.sum(dust_map**2) - np.sum(sync_map*dust_map)/np.sum(dust_map**2) *((np.sum(dust_map**2)*np.sum(new_radio*sync_map) - np.sum(new_radio*dust_map)*np.sum(sync_map*dust_map))/(np.sum(dust_map**2)*np.sum(sync_map**2) - np.sum(sync_map*dust_map)**2))
 
 print 'Synchrotron sacle factor:', gamma_sync
 print 'Dust scale factor:', delta_dust
 
 
-radio_fr = np.copy(radio_map.data - gamma_sync*sync_map.data - delta_dust * dust_map.data)
+radio_fr = new_radio - gamma_sync*sync_map - delta_dust * dust_map
+radio_fr.mask= mask_bool
 
-radio_fr = hp.ma(radio_fr)
-radio_fr.mask=mask_bool
-radio_fr -=radio_fr.mean()
+tmp_mask = (mask_bool).astype(float)
+tmp_mask = hp.smoothing(tmp_mask,fwhm=1.*np.pi/(180.),verbose=False)
+thresh = 5e-2
+tmp_mask[tmp_mask < thresh] =0
+tmp_mask[tmp_mask > thresh] =1
+#tmp_mask1 = np.round(tmp_mask)
+tmp_mask = tmp_mask.astype(bool)
+new_mask = np.logical_or( tmp_mask, mask_bool)
+#radio_fr = hp.ma(radio_fr)
+radio_fr.mask = new_mask
+radio_fr.fill_value = hp.UNSEEN
+
+
+## re-flag previously unseen pixels
+while(radio_fr.min() < -1e+30):
+    radio_fr.mask[np.argmin(radio_fr).squeeze()] = True
+
+new_mask = radio_fr.mask
+
+radio_fr -= radio_fr.mean()
+
+radio_map.mask = new_mask
+cmb_map.mask  = new_mask
+
+radio_map -= radio_map.mean()
+cmb_map -= cmb_map.mean()
 
 hp.mollview(radio_fr, norm='hist', unit='$K_{CMB}$')
 plt.savefig('mwa_1hr_fr.png', format='png')
@@ -153,27 +182,29 @@ plt.savefig('mwa_1hr_raw.png', format='png')
 plt.close()
 
 cross_cls = hp.anafast(cmb_map,radio_fr)
+radio_cls = hp.anafast(radio_fr)
 cmb_cls = hp.anafast(cmb_map)
 
 
 
 lmax = len(cross_cls)
 beam_lmax = lmax
-l = np.arange(beam_lmax)
+l = np.arange(2,beam_lmax)
 ll = l*(l+1)/(2*np.pi)
-beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),beam_lmax-1)
-beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)
-pix = hp.pixwin(256)[:beam_lmax]
+beam_3 = hp.gauss_beam(3.*np.pi/(180.*60.),beam_lmax-1)[2:]
+beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)[2:]
+pix = hp.pixwin(256)[2:beam_lmax]
 
 theory_cls= hp.read_cl(theory_cl_file)
-theory_cls=theory_cls[0][:beam_lmax]
+theory_cls=theory_cls[0][2:beam_lmax]
 #theory_cls[:2]=1e-10
 
-cross_cls = cross_cls[:beam_lmax]
-cmb_cls = cmb_cls[:beam_lmax]
+cross_cls = cross_cls[2:beam_lmax]
+radio_cls = radio_cls[2:beam_lmax]
+cmb_cls = cmb_cls[2:beam_lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))[:beam_lmax]
-fskyw2 = np.sum([(2*m+1)*wls[mi] if m != 0 else 0 for mi,m in enumerate(l)])/(4*np.pi)
+fskyw2 = np.sum([(2*m+1)*wls[mi] if m != 0 else 0 for mi,m in enumerate(xrange(len(wls)))])/(4*np.pi)
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
@@ -211,94 +242,61 @@ Qlb /= np.sqrt(norm)
 
 l_out = bin_llcl.bin_llcl(ll,bins)['l_out']
 bcross_cls= bin_llcl.bin_llcl(ll*cross_cls,bins)
+bradio = bin_llcl.bin_llcl(ll*radio_cls,bins)
 bcmb_cls = bin_llcl.bin_llcl(ll*cmb_cls,bins)
-bwls = bin_llcl.bin_llcl(ll*wls,bins)
+#bwls = bin_llcl.bin_llcl(ll*wls,bins)
 
 
 
-#Mll = MLL.Mll(wls,l)
+Mll = MLL.Mll(wls,l)
 #Mll = np.array(Mll)
-#np.savez('mll_mwa.npz',mll=Mll)
+np.savez('mll_mwa.npz',mll=Mll)
 
-Mll = np.load('mll_mwa.npz')['mll']
-Mll = Mll[:beam_lmax,:beam_lmax]
+#Mll = np.load('mll_mwa.npz')['mll']
+#Mll = Mll[2:beam_lmax,2:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
 #compute TOD transfer function.. Maybe
-N_cmb = 5
+#N_cmb = 5
+##
+#cl_mc=[]
+#noise_mc=[]
+#noise_const = 400e-6
+#print 'Creaing transform function with {0} CMB realizations'.format(N_cmb)
+#for n in xrange(N_cmb):
+#    temp_cmb = hp.synfast(theory_cls,nside=256,fwhm=0,verbose=False,pixwin=True)
+#    temp_noise = np.copy(temp_cmb) + noise_const*np.random.normal(size=len(temp_cmb))
 #
-cl_mc=[]
-noise_mc=[]
-noise_const = 400e-6
-print 'Creaing transform function with {0} CMB realizations'.format(N_cmb)
-for n in xrange(N_cmb):
-    temp_cmb = hp.synfast(theory_cls,nside=256,fwhm=0,verbose=False,pixwin=True)
-    temp_noise = np.copy(temp_cmb) + noise_const*np.random.normal(size=len(temp_cmb))
+#    temp_cmb = hp.smoothing(temp_cmb,fwhm=5.*np.pi/(180.*60.),verbose=False)
+#    temp_noise = hp.smoothing(temp_noise, fwhm=14.4*np.pi/(180.*60.),verbose=False)
+#
+#    temp_cmb = hp.ma(temp_cmb)
+#    temp_cmb.mask = mask_bool
+#
+#    temp_noise = hp.ma(temp_noise)
+#    temp_noise.mask = mask_bool
+#
+#    cl_mc.append(hp.anafast(temp_cmb)[:beam_lmax])
+#    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[:beam_lmax])
+#
+#cl_avg=np.mean(cl_mc,axis=0)
+#
+#noise_mc = np.array(noise_mc)
+#
+#bnoise=bin_llcl.bin_llcl(ll*noise_mc,bins)
+#binned_t = bin_llcl.bin_llcl(ll*theory_cls,bins)
 
-    temp_cmb = hp.smoothing(temp_cmb,fwhm=5.*np.pi/(180.*60.),verbose=False)
-    temp_noise = hp.smoothing(temp_noise, fwhm=14.4*np.pi/(180.*60.),verbose=False)
-
-    temp_cmb = hp.ma(temp_cmb)
-    temp_cmb.mask = mask_bool
-
-    temp_noise = hp.ma(temp_noise)
-    temp_noise.mask = mask_bool
-
-    cl_mc.append(hp.anafast(temp_cmb)[:beam_lmax])
-    noise_mc.append(hp.anafast(temp_noise,temp_cmb)[:beam_lmax])
-
-cl_avg=np.mean(cl_mc,axis=0)
-
-noise_mc = np.array(noise_mc)
-
-bnoise=bin_llcl.bin_llcl(ll*noise_mc,bins)
-binned_t = bin_llcl.bin_llcl(ll*theory_cls,bins)
-#F0= cross_cls/(fskyw2*beam_5*beam_14*pix**2*theory_cls)
-#F0_cmb = cmb_cls/(fskyw2*beam_5**2*pix**2*theory_cls)
-#F0_cmb = cl_avg/(beam_5**2*pix**2*theory_cls*fskyw2)
-
-#F0[:2]=0
-#F0_cmb[:2]=0
-
-
-#Fl = F0 + (np.convolve(cross_cls, np.ones(50)/50.,mode='same') - np.dot(Mll*F0*beam_5*beam_14*pix**2,theory_cls))/(beam_5*beam_14*fskyw2*theory_cls*pix**2)
 #S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
 
-#Fl_cmb = F0_cmb + (S_cl_avg - np.einsum('ij,j', Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2)
-#Fl_cmb = F0_cmb + (S_cl_avg - np.einsum('ij,j', Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
 
-#Fl[:2]=0
-#Fl_cmb[:2]=0
-#Fl_cmb = np.ones_like(pix)
-
-
-S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
-
-
-F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) for n in xrange(1,beam_lmax+1)])
-F0_cmb[:25] =0
-Fl1_cmb = F0_cmb + (cl_avg - np.dot( Mll*F0_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
-Fl1_cmb[:2] =0
-
-Fl_cmb = Fl1_cmb + (cl_avg - np.dot( Mll*Fl1_cmb*beam_5**2*pix**2,theory_cls))/(beam_5**2*theory_cls*pix**2*fskyw2)
-
-Fl_cmb[:2] =0
-
-#two itterations to make stable soultion
-
-#Fl1_cross = F0_cmb +  (cl_avg - np.dot(Mll*F0_cmb*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
-#Fl_cross[:2] = 0
-#
-#Fl_cross = Fl1_cross +  (cl_avg - np.dot(Mll*Fl1_cross*beam_5*beam_14*pix**2, theory_cls))/(beam_5*beam_14*theory_cls*pix**2*fskyw2)
-#
-#Fl_cross[:2] = 0
+F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) if n >= 25 else 0 for n in xrange(3,beam_lmax+1)])
+#F0_cmb[:25] =0
 
 
 
-kbb_cross = np.einsum('ij,jk,kl', Pbl, Mll *beam_14*beam_5*pix**2*F0_cmb,Qlb)
+kbb_cross = np.einsum('ij,jk,kl', Pbl, Mll *beam_3*beam_5*pix**2*F0_cmb,Qlb)
+kbb_radio = np.einsum('ij,jk,kl', Pbl, Mll *beam_3**2*pix**2*F0_cmb,Qlb)
 kbb_cmb = np.einsum('ij,jk,kl',  Pbl, Mll *beam_5**2*pix**2*F0_cmb,Qlb)
-#kbb_cross = np.einsum('ij,jk,kl', Pbl, Mll *beam_14*beam_5*pix**2,Qlb)
-#kbb_cmb = np.einsum('ij,jk,kl',  Pbl, Mll *beam_5**2*pix**2,Qlb)
 
 
 U, S, V = np.linalg.svd(kbb_cross)
@@ -308,22 +306,29 @@ _kbb_cross = np.einsum('ij,j,jk', V.T, 1./S, U.T)
 U1, S1, V1 = np.linalg.svd(kbb_cmb)
 _kbb_cmb = np.einsum('ij,j,jk', V1.T, 1./S1, U1.T)
 
+U2, S2, V2 = np.linalg.svd(kbb_radio)
+_kbb_radio = np.einsum('ij,j,jk', V2.T, 1./S2, U2.T)
+
 dll = {}
 cmb_dll = {}
 noise_dll = {}
-
+radio_dll = {}
 dll['llcl'] = np.einsum('ij,j', _kbb_cross, bcross_cls['llcl'])
 
 cmb_dll['llcl'] = np.einsum('ij,j',_kbb_cmb,bcmb_cls['llcl'])
 
-noise_dll['llcl'] = np.einsum('ij,kj', _kbb_cross,bnoise['llcl'])
+radio_dll['llcl'] = np.einsum('ij,j', _kbb_radio, bradio['llcl'])
 
-Cov = cov( dll['llcl'] - noise_dll['llcl'].T)
+#noise_dll['llcl'] = np.einsum('ij,kj', _kbb_cross,bnoise['llcl'])
+#
+#Cov = cov( dll['llcl'] - noise_dll['llcl'].T)
 
-delta = np.sqrt(Cov.diagonal())
+F0_bin = bin_llcl.bin_llcl(F0_cmb,bins,uniform=True)['llcl']
+
+delta = np.sqrt(2./((2*l_out+1)*np.sqrt(bins**2+dl_eff**2)*fskyw2*F0_bin)*(cmb_dll['llcl']**2 + abs(cmb_dll['llcl']*radio_dll['llcl'])/2.))
 
 fig, ax = plt.subplots(1)
-good_l = np.logical_and(l_out>25, l_out <= beam_lmax)
+good_l = np.logical_and(l_out>25, l_out <= 500)
 
 ax.plot(l_out[good_l],cmb_dll['llcl'][good_l]*1e12, 'r-')
 ax.errorbar(l_out[good_l], dll['llcl'][good_l]*1e12, delta[good_l]*1e12, fmt ='k.')
