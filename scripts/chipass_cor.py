@@ -156,7 +156,7 @@ radio_fr.mask= mask_bool
 
 tmp_mask = (mask_bool).astype(float)
 tmp_mask = hp.smoothing(tmp_mask,fwhm=1.*np.pi/(180.),verbose=False)
-thresh = 5e-2
+thresh = 1e-1
 tmp_mask[tmp_mask < thresh] =0
 tmp_mask[tmp_mask > thresh] =1
 #tmp_mask1 = np.round(tmp_mask)
@@ -170,10 +170,10 @@ radio_fr.fill_value = hp.UNSEEN
 ## re-flag previously unseen pixels
 while(radio_fr.min() < -1e+30):
     radio_fr.mask[np.argmin(radio_fr).squeeze()] = True
-while( radio_fr.max() / np.sqrt(np.mean(radio_fr**2)) > 4):
-    radio_fr.mask[np.argmax(radio_fr).squeeze()] = True
-while( radio_fr.min() / np.sqrt(np.mean(radio_fr**2)) > 4):
-    radio_fr.mask[np.argmin(radio_fr).squeeze()] = True
+while( abs(radio_fr).max() / np.sqrt(np.mean(radio_fr**2)) > 4):
+    radio_fr.mask[np.argmax(abs(radio_fr)).squeeze()] = True
+#while( radio_fr.min() / np.sqrt(np.mean(radio_fr**2)) > 4):
+ #   radio_fr.mask[np.argmin(radio_fr).squeeze()] = True
 
 new_mask = radio_fr.mask
 
@@ -201,29 +201,29 @@ cmb_cls = hp.anafast(cmb_map)
 
 lmax = len(cross_cls)
 beam_lmax = lmax
-l = np.arange(2,beam_lmax)
+l = np.arange(beam_lmax)
 ll = l*(l+1)/(2*np.pi)
-beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),beam_lmax-1)[2:]
-beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)[2:]
-b14_180 = hp.gauss_beam(np.sqrt((3*60.)**2 - (14.4)**2)*np.pi/(180.*60.),beam_lmax-1)[2:]
-b5_180 = hp.gauss_beam(np.sqrt((3*60.)**2 - (5.)**2)*np.pi/(180.*60.),beam_lmax-1)[2:]
+beam_14 = hp.gauss_beam(14.4*np.pi/(180.*60.),beam_lmax-1)
+beam_5 = hp.gauss_beam(5.*np.pi/(180.*60.),beam_lmax-1)
+b14_180 = hp.gauss_beam(np.sqrt((3*60.)**2 - (14.4)**2)*np.pi/(180.*60.),beam_lmax-1)
+b5_180 = hp.gauss_beam(np.sqrt((3*60.)**2 - (5.)**2)*np.pi/(180.*60.),beam_lmax-1)
 
 beam_14 *= (1. - b14_180)
 beam_5 *= (1. - b5_180)
 
-pix = hp.pixwin(256)[2:beam_lmax]
+pix = hp.pixwin(256)[:beam_lmax]
 
 theory_cls= hp.read_cl(theory_cl_file)
-theory_cls=theory_cls[0][2:beam_lmax]
+theory_cls=theory_cls[0][:beam_lmax]
 #theory_cls[:2]=1e-10
 
-cross_cls = cross_cls[2:beam_lmax]
-radio_cls = radio_cls[2:beam_lmax]
-cmb_cls = cmb_cls[2:beam_lmax]
+cross_cls = cross_cls[:beam_lmax]
+radio_cls = radio_cls[:beam_lmax]
+cmb_cls = cmb_cls[:beam_lmax]
 
 wls = hp.anafast((~radio_fr.mask).astype(float))[:beam_lmax]
 fskyw2 = np.sum([(2*m+1)*wls[mi] if m > 0 else 0 for mi,m in enumerate(xrange(len(wls)))])/(4*np.pi)
-wls = wls[2:]
+wls = wls
 
 fsky = 1. - np.sum(mask_bool).astype(float)/len(mask_bool)
 L = np.sqrt(4*np.pi*fsky)
@@ -235,11 +235,13 @@ nbins = long((beam_lmax)/bins)
 _lmax = nbins*bins -1
 w=2*l+1
 
-Pbl = np.tile( l*(l+1)/(2*np.pi*bins),(nbins,1))
+Pbl = np.tile( [li*(li+1)/(2*np.pi*bins) if li > 2 else 0 for li in l],(nbins,1))
+#Pbl[:2] =0
+#ipdb.set_trace()
 
-Qlb = np.tile(2.*np.pi/(l*(l+1)).clip(1,np.Inf),(nbins,1))
+Qlb = np.tile( [ 2.*np.pi/(li*(li+1)) if li >0 else 0 for li in l],(nbins,1))
 Qlb = Qlb.T
-Qlb[:2] = 0
+#Qlb[:2] = 0
 
 q_mult = np.zeros_like(Qlb)
 mult =np.zeros_like(Pbl)
@@ -267,11 +269,11 @@ l_out = bin_llcl.bin_llcl(ll,bins)['l_out']
 
 
 
-Mll = MLL.Mll(wls,l)
+#Mll = MLL.Mll(wls,l)
 #Mll = np.array(Mll)
-np.savez('mll_chipass.npz',mll=Mll)
+#np.savez('mll_chipass.npz',mll=Mll)
 
-#Mll = np.load('mll_chipass.npz')['mll']
+Mll = np.load('mll_chipass.npz')['mll']
 #Mll = Mll[2:beam_lmax,2:beam_lmax]
 #Mll = Mll.reshape(lmax,lmax)
 
@@ -301,7 +303,7 @@ np.savez('mll_chipass.npz',mll=Mll)
 
 #S_cl_avg = np.convolve(cl_avg, np.ones(50)/50.,mode='same')
 
-F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) if n >= 25 else 0 for n in xrange(3,beam_lmax+1)])
+F0_cmb = np.array([ 1-2./np.pi*np.arcsin(25./n) if n >= 25 else 0 for n in xrange(beam_lmax)])
 
 
 
@@ -364,7 +366,7 @@ F0_bin = bin_llcl.bin_llcl(F0_cmb,bins,uniform=True)['llcl']
 delta= np.sqrt(2./((2*l_out+1)*np.sqrt(dl_eff**2+bins**2)*fskyw2*F0_bin)* (cmb_dll['llcl']**2 + abs(cmb_dll['llcl']*radio_dll['llcl'])/2.) )
 
 fig, ax = plt.subplots(1)
-good_l = np.logical_and(l_out>25, l_out <= 500)
+good_l = np.logical_and(l_out>75, l_out <= 500)
 
 ax.plot(l_out[good_l],cmb_dll['llcl'][good_l]*1e12, 'r-')
 ax.errorbar(l_out[good_l], dll['llcl'][good_l]*1e12, delta[good_l]*1e12, fmt ='k.')
@@ -379,7 +381,7 @@ fig.savefig('chipass_correlation_lin.png', fmt='png')
 ax.set_yscale('log')
 fig.savefig('chipass_correlation_log.png', fmt='png')
 
-fit_l = np.logical_and(l_out>25, l_out < 500)
+fit_l = np.logical_and(l_out>75, l_out < 500)
 
 likelihood(dll['llcl'][good_l],delta[good_l],cmb_dll['llcl'][good_l],'chipass','fr')
 
